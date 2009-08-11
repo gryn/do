@@ -19,6 +19,14 @@ require 'do_sqlite3_ext'
 require File.expand_path(File.join(File.dirname(__FILE__), 'do_sqlite3', 'version'))
 require File.expand_path(File.join(File.dirname(__FILE__), 'do_sqlite3', 'transaction'))
 
+module DataObjects
+  module Sqlite3
+    class Connection
+      cattr_accessor :extensions
+    end
+  end
+end
+
 if RUBY_PLATFORM =~ /java/
   # Another way of loading the JDBC Class. This seems to be more reliable
   # than Class.forName() within the data_objects.Connection Java class,

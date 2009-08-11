@@ -7,6 +7,7 @@
 
 #define ID_CONST_GET rb_intern("const_get")
 #define ID_PATH rb_intern("path")
+#define ID_EXTENSIONS rb_intern("extensions")
 #define ID_NEW rb_intern("new")
 #define ID_ESCAPE rb_intern("escape_sql")
 #define ID_QUERY rb_intern("query")
@@ -374,14 +375,38 @@ static int flags_from_uri(VALUE uri) {
 
 #endif
 
+static VALUE cConnection_load_extension_intern(VALUE name, sqlite3 *db) {
+  int ret;
+  
+  ret = sqlite3_enable_load_extension(db, 1);
+  if ( ret != SQLITE_OK ) {
+    rb_raise(eSqlite3Error, sqlite3_errmsg(db));
+  }
+
+  ret = sqlite3_load_extension(db, StringValuePtr(name), 0, 0);
+  if ( ret != SQLITE_OK ) {
+    rb_raise(eSqlite3Error, sqlite3_errmsg(db));
+  }
+
+  ret = sqlite3_enable_load_extension(db, 0);
+  if ( ret != SQLITE_OK ) {
+    rb_raise(eSqlite3Error, sqlite3_errmsg(db));
+  }
+  
+  return Qtrue;
+}
+
 /****** Public API ******/
 
 static VALUE cConnection_initialize(VALUE self, VALUE uri) {
   int ret;
   VALUE path;
   sqlite3 *db;
+  VALUE extensions;
+  int i;
 
   path = rb_funcall(uri, ID_PATH, 0);
+  extensions = rb_funcall(self, ID_EXTENSIONS, 0);
 
 #ifdef HAVE_SQLITE3_OPEN_V2
   ret = sqlite3_open_v2(StringValuePtr(path), &db, flags_from_uri(uri), 0);
@@ -391,6 +416,15 @@ static VALUE cConnection_initialize(VALUE self, VALUE uri) {
 
   if ( ret != SQLITE_OK ) {
     rb_raise(eSqlite3Error, sqlite3_errmsg(db));
+  }
+
+  if( TYPE(extensions) == T_ARRAY ) {
+    for (i = 0; i < RARRAY_LEN(extensions); i++) {
+      VALUE extension = rb_ary_entry(extensions, i);
+      cConnection_load_extension_intern(extension, db);
+    }
+  } else if(extensions != Qnil) {
+    cConnection_load_extension_intern(extensions, db);
   }
 
   rb_iv_set(self, "@uri", uri);
@@ -633,6 +667,17 @@ static VALUE cReader_field_count(VALUE self) {
   return rb_iv_get(self, "@field_count");
 }
 
+static VALUE cConnection_load_extension(int argc, VALUE *argv, VALUE self) {
+  VALUE name = argv[0];
+  sqlite3 *db;
+  VALUE conn_obj;
+  
+  conn_obj = rb_iv_get(self, "@connection");
+  Data_Get_Struct(rb_iv_get(conn_obj, "@connection"), sqlite3, db);
+
+  return cConnection_load_extension_intern(name, db);
+}
+
 void Init_do_sqlite3_ext() {
   rb_require("bigdecimal");
   rb_require("date");
@@ -677,6 +722,7 @@ void Init_do_sqlite3_ext() {
   rb_define_method(cConnection, "dispose", cConnection_dispose, 0);
   rb_define_method(cConnection, "quote_boolean", cConnection_quote_boolean, 1);
   rb_define_method(cConnection, "quote_string", cConnection_quote_string, 1);
+  rb_define_method(cConnection, "load_extension", cConnection_load_extension, 1);
 
   cCommand = SQLITE3_CLASS("Command", cDO_Command);
   rb_define_method(cCommand, "set_types", cCommand_set_types, -1);
